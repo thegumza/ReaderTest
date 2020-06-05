@@ -123,12 +123,6 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="T=0"></CheckBox>
-
-                <CheckBox
-                    android:id="@+id/main_check_box_t1"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="T=1"></CheckBox>
             </LinearLayout>
 
             <LinearLayout

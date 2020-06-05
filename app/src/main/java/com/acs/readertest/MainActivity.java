@@ -10,6 +10,7 @@
 package com.acs.readertest;
 
 import java.io.UnsupportedEncodingException;
+import java.nio.charset.StandardCharsets;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -27,6 +28,7 @@ import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbManager;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.os.Handler;
 import android.text.method.ScrollingMovementMethod;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -55,7 +57,7 @@ import com.acs.smartcard.TlvProperties;
  * @author Godfrey Chung
  * @version 1.1.1, 16 Apr 2013
  */
-public class MainActivity extends Activity {
+public class MainActivity extends Activity implements OnStateChangeListener {
 
     private static final String ACTION_USB_PERMISSION = "com.android.example.USB_PERMISSION";
 
@@ -105,7 +107,6 @@ public class MainActivity extends Activity {
     private Button mPowerButton;
     private Button mGetAtrButton;
     private CheckBox mT0CheckBox;
-    private CheckBox mT1CheckBox;
     private Button mSetProtocolButton;
     private Button mGetProtocolButton;
     private EditText mCommandEditText;
@@ -134,7 +135,7 @@ public class MainActivity extends Activity {
 
                 synchronized (this) {
 
-                    UsbDevice device = (UsbDevice) intent
+                    final UsbDevice device = intent
                             .getParcelableExtra(UsbManager.EXTRA_DEVICE);
 
                     if (intent.getBooleanExtra(
@@ -142,10 +143,58 @@ public class MainActivity extends Activity {
 
                         if (device != null) {
 
-                            // Open reader
-                            logMsg("Opening reader: " + device.getDeviceName()
-                                    + "...");
-                            new OpenTask().execute(device);
+                            Handler handler = new Handler();
+                            handler.postDelayed(new Runnable() {
+                                @Override
+                                public void run() {
+                                    new OpenTask().execute(device);
+                                }
+                            }, 1000);
+                            handler = new Handler();
+                            handler.postDelayed(new Runnable() {
+                                @Override
+                                public void run() {
+                                    PowerParams paramsPower = new PowerParams();
+                                    paramsPower.slotNum = mReader.getNumSlots();
+                                    paramsPower.action = Reader.CARD_WARM_RESET;
+                                    new PowerTask().execute(paramsPower);
+                                }
+                            }, 1000);
+                            handler = new Handler();
+                            handler.postDelayed(new Runnable() {
+                                @Override
+                                public void run() {
+                                    SetProtocolParams paramsProtocol = new SetProtocolParams();
+                                    paramsProtocol.slotNum = mReader.getNumSlots();
+                                    paramsProtocol.preferredProtocols = Reader.PROTOCOL_T0;
+                                    new SetProtocolTask().execute(paramsProtocol);
+                                }
+                            }, 1000);
+                            TransmitParams params = new TransmitParams();
+                            params.slotNum = mReader.getNumSlots();
+                            params.controlCode = -1;
+                            params.commandString = "00A4040008A000000054480001";
+                            new TransmitTask().execute(params);
+                            params = new TransmitParams();
+                            params.slotNum = mReader.getNumSlots();
+                            params.controlCode = -1;
+                            params.commandString = "80B0000402000D";
+                            new TransmitTask().execute(params);
+                            params = new TransmitParams();
+                            params.slotNum = mReader.getNumSlots();
+                            params.controlCode = -1;
+                            params.commandString = "00C000000D";
+                            new TransmitTask().execute(params);
+                            params = new TransmitParams();
+                            params.slotNum = mReader.getNumSlots();
+                            params.controlCode = -1;
+                            params.commandString = "80B000110200D1";
+                            new TransmitTask().execute(params);
+                            params = new TransmitParams();
+                            params.slotNum = mReader.getNumSlots();
+                            params.controlCode = -1;
+                            params.commandString = "00C00000D1";
+                            new TransmitTask().execute(params);
                         }
 
                     } else {
@@ -170,7 +219,7 @@ public class MainActivity extends Activity {
                         }
                     }
 
-                    UsbDevice device = (UsbDevice) intent
+                    UsbDevice device = intent
                             .getParcelableExtra(UsbManager.EXTRA_DEVICE);
 
                     if (device != null && device.equals(mReader.getDevice())) {
@@ -183,7 +232,6 @@ public class MainActivity extends Activity {
                         mPowerButton.setEnabled(false);
                         mGetAtrButton.setEnabled(false);
                         mT0CheckBox.setEnabled(false);
-                        mT1CheckBox.setEnabled(false);
                         mSetProtocolButton.setEnabled(false);
                         mGetProtocolButton.setEnabled(false);
                         mTransmitButton.setEnabled(false);
@@ -205,6 +253,34 @@ public class MainActivity extends Activity {
             }
         }
     };
+
+    @Override
+    public void onStateChange(int slotNum, int prevState, int currState) {
+
+        if (prevState < Reader.CARD_UNKNOWN
+                || prevState > Reader.CARD_SPECIFIC) {
+            prevState = Reader.CARD_UNKNOWN;
+        }
+
+        if (currState < Reader.CARD_UNKNOWN
+                || currState > Reader.CARD_SPECIFIC) {
+            currState = Reader.CARD_UNKNOWN;
+        }
+
+        // Create output string
+        final String outputString = "Slot " + slotNum + ": "
+                + stateStrings[prevState] + " -> "
+                + stateStrings[currState];
+
+        // Show output
+        runOnUiThread(new Runnable() {
+
+            @Override
+            public void run() {
+                logMsg(outputString);
+            }
+        });
+    }
 
     private class OpenTask extends AsyncTask<UsbDevice, Void, Exception> {
 
@@ -256,7 +332,6 @@ public class MainActivity extends Activity {
                 mPowerButton.setEnabled(true);
                 mGetAtrButton.setEnabled(true);
                 mT0CheckBox.setEnabled(true);
-                mT1CheckBox.setEnabled(true);
                 mSetProtocolButton.setEnabled(true);
                 mGetProtocolButton.setEnabled(true);
                 mTransmitButton.setEnabled(true);
@@ -382,19 +457,10 @@ public class MainActivity extends Activity {
 
                 String activeProtocolString = "Active Protocol: ";
 
-                switch (result.activeProtocol) {
-
-                case Reader.PROTOCOL_T0:
+                if (result.activeProtocol == Reader.PROTOCOL_T0) {
                     activeProtocolString += "T=0";
-                    break;
-
-                case Reader.PROTOCOL_T1:
-                    activeProtocolString += "T=1";
-                    break;
-
-                default:
+                } else {
                     activeProtocolString += "Unknown";
-                    break;
                 }
 
                 // Show active protocol
@@ -496,15 +562,7 @@ public class MainActivity extends Activity {
 
             if (progress[0].e != null) {
 
-                logMsg(progress[0].e.toString());
-
             } else {
-
-                logMsg("Command:");
-                logBuffer(progress[0].command, progress[0].commandLength);
-
-                logMsg("Response:");
-                logBuffer(progress[0].response, progress[0].responseLength);
 
                 if (progress[0].response != null
                         && progress[0].responseLength > 0) {
@@ -518,13 +576,11 @@ public class MainActivity extends Activity {
                         mFeatures.fromByteArray(progress[0].response,
                                 progress[0].responseLength);
 
-                        logMsg("Features:");
                         for (i = Features.FEATURE_VERIFY_PIN_START; i <= Features.FEATURE_CCID_ESC_COMMAND; i++) {
 
                             controlCode = mFeatures.getControlCode(i);
                             if (controlCode >= 0) {
-                                logMsg("Control Code: " + controlCode + " ("
-                                        + featureStrings[i] + ")");
+
                             }
                         }
 
@@ -545,15 +601,6 @@ public class MainActivity extends Activity {
                         PinProperties pinProperties = new PinProperties(
                                 progress[0].response,
                                 progress[0].responseLength);
-
-                        logMsg("PIN Properties:");
-                        logMsg("LCD Layout: "
-                                + toHexString(pinProperties.getLcdLayout()));
-                        logMsg("Entry Validation Condition: "
-                                + toHexString(pinProperties
-                                        .getEntryValidationCondition()));
-                        logMsg("Timeout 2: "
-                                + toHexString(pinProperties.getTimeOut2()));
                     }
 
                     controlCode = mFeatures
@@ -566,15 +613,153 @@ public class MainActivity extends Activity {
                                 progress[0].responseLength);
 
                         Object property;
-                        logMsg("TLV Properties:");
                         for (i = TlvProperties.PROPERTY_wLcdLayout; i <= TlvProperties.PROPERTY_wIdProduct; i++) {
 
                             property = readerProperties.getProperty(i);
                             if (property instanceof Integer) {
-                                logMsg(propertyStrings[i] + ": "
-                                        + toHexString((Integer) property));
                             } else if (property instanceof String) {
-                                logMsg(propertyStrings[i] + ": " + property);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private class ThaiTransmitTask extends
+            AsyncTask<TransmitParams, TransmitProgress, Void> {
+
+        @Override
+        protected Void doInBackground(TransmitParams... params) {
+
+            TransmitProgress progress = null;
+
+            byte[] command = null;
+            byte[] response = null;
+            int responseLength = 0;
+            int foundIndex = 0;
+            int startIndex = 0;
+
+            do {
+
+                // Find carriage return
+                foundIndex = params[0].commandString.indexOf('\n', startIndex);
+                if (foundIndex >= 0) {
+                    command = toByteArray(params[0].commandString.substring(
+                            startIndex, foundIndex));
+                } else {
+                    command = toByteArray(params[0].commandString
+                            .substring(startIndex));
+                }
+
+                // Set next start index
+                startIndex = foundIndex + 1;
+
+                response = new byte[300];
+                progress = new TransmitProgress();
+                progress.controlCode = params[0].controlCode;
+                try {
+
+                    if (params[0].controlCode < 0) {
+
+                        // Transmit APDU
+                        responseLength = mReader.transmit(params[0].slotNum,
+                                command, command.length, response,
+                                response.length);
+
+                    } else {
+
+                        // Transmit control command
+                        responseLength = mReader.control(params[0].slotNum,
+                                params[0].controlCode, command, command.length,
+                                response, response.length);
+                    }
+
+                    progress.command = command;
+                    progress.commandLength = command.length;
+                    progress.response = response;
+                    progress.responseLength = responseLength;
+                    progress.e = null;
+
+                } catch (Exception e) {
+
+                    progress.command = null;
+                    progress.commandLength = 0;
+                    progress.response = null;
+                    progress.responseLength = 0;
+                    progress.e = e;
+                }
+
+                publishProgress(progress);
+
+            } while (foundIndex >= 0);
+
+            return null;
+        }
+
+        @Override
+        protected void onProgressUpdate(TransmitProgress... progress) {
+
+            if (progress[0].e != null) {
+
+            } else {
+
+                logBuffer(progress[0].response, progress[0].responseLength);
+
+                if (progress[0].response != null
+                        && progress[0].responseLength > 0) {
+
+                    int controlCode;
+                    int i;
+
+                    // Show control codes for IOCTL_GET_FEATURE_REQUEST
+                    if (progress[0].controlCode == Reader.IOCTL_GET_FEATURE_REQUEST) {
+
+                        mFeatures.fromByteArray(progress[0].response,
+                                progress[0].responseLength);
+
+                        for (i = Features.FEATURE_VERIFY_PIN_START; i <= Features.FEATURE_CCID_ESC_COMMAND; i++) {
+
+                            controlCode = mFeatures.getControlCode(i);
+                            if (controlCode >= 0) {
+
+                            }
+                        }
+
+                        // Enable buttons if features are supported
+                        mVerifyPinButton
+                                .setEnabled(mFeatures
+                                        .getControlCode(Features.FEATURE_VERIFY_PIN_DIRECT) >= 0);
+                        mModifyPinButton
+                                .setEnabled(mFeatures
+                                        .getControlCode(Features.FEATURE_MODIFY_PIN_DIRECT) >= 0);
+                    }
+
+                    controlCode = mFeatures
+                            .getControlCode(Features.FEATURE_IFD_PIN_PROPERTIES);
+                    if (controlCode >= 0
+                            && progress[0].controlCode == controlCode) {
+
+                        PinProperties pinProperties = new PinProperties(
+                                progress[0].response,
+                                progress[0].responseLength);
+                    }
+
+                    controlCode = mFeatures
+                            .getControlCode(Features.FEATURE_GET_TLV_PROPERTIES);
+                    if (controlCode >= 0
+                            && progress[0].controlCode == controlCode) {
+
+                        TlvProperties readerProperties = new TlvProperties(
+                                progress[0].response,
+                                progress[0].responseLength);
+
+                        Object property;
+                        for (i = TlvProperties.PROPERTY_wLcdLayout; i <= TlvProperties.PROPERTY_wIdProduct; i++) {
+
+                            property = readerProperties.getProperty(i);
+                            if (property instanceof Integer) {
+                            } else if (property instanceof String) {
                             }
                         }
                     }
@@ -595,36 +780,7 @@ public class MainActivity extends Activity {
 
         // Initialize reader
         mReader = new Reader(mManager);
-        mReader.setOnStateChangeListener(new OnStateChangeListener() {
-
-            @Override
-            public void onStateChange(int slotNum, int prevState, int currState) {
-
-                if (prevState < Reader.CARD_UNKNOWN
-                        || prevState > Reader.CARD_SPECIFIC) {
-                    prevState = Reader.CARD_UNKNOWN;
-                }
-
-                if (currState < Reader.CARD_UNKNOWN
-                        || currState > Reader.CARD_SPECIFIC) {
-                    currState = Reader.CARD_UNKNOWN;
-                }
-
-                // Create output string
-                final String outputString = "Slot " + slotNum + ": "
-                        + stateStrings[prevState] + " -> "
-                        + stateStrings[currState];
-
-                // Show output
-                runOnUiThread(new Runnable() {
-
-                    @Override
-                    public void run() {
-                        logMsg(outputString);
-                    }
-                });
-            }
-        });
+        mReader.setOnStateChangeListener(this);
 
         // Register receiver for USB permission
         mPermissionIntent = PendingIntent.getBroadcast(this, 0, new Intent(
@@ -635,7 +791,7 @@ public class MainActivity extends Activity {
         registerReceiver(mReceiver, filter);
 
         // Initialize response text view
-        mResponseTextView = (TextView) findViewById(R.id.main_text_view_response);
+        mResponseTextView = findViewById(R.id.main_text_view_response);
         mResponseTextView.setMovementMethod(new ScrollingMovementMethod());
         mResponseTextView.setMaxLines(MAX_LINES);
         mResponseTextView.setText("");
@@ -648,24 +804,24 @@ public class MainActivity extends Activity {
                 mReaderAdapter.add(device.getDeviceName());
             }
         }
-        mReaderSpinner = (Spinner) findViewById(R.id.main_spinner_reader);
+        mReaderSpinner = findViewById(R.id.main_spinner_reader);
         mReaderSpinner.setAdapter(mReaderAdapter);
 
         // Initialize slot spinner
         mSlotAdapter = new ArrayAdapter<String>(this,
                 android.R.layout.simple_spinner_item);
-        mSlotSpinner = (Spinner) findViewById(R.id.main_spinner_slot);
+        mSlotSpinner = findViewById(R.id.main_spinner_slot);
         mSlotSpinner.setAdapter(mSlotAdapter);
 
         // Initialize power spinner
         ArrayAdapter<String> powerAdapter = new ArrayAdapter<String>(this,
                 android.R.layout.simple_spinner_item, powerActionStrings);
-        mPowerSpinner = (Spinner) findViewById(R.id.main_spinner_power);
+        mPowerSpinner = findViewById(R.id.main_spinner_power);
         mPowerSpinner.setAdapter(powerAdapter);
         mPowerSpinner.setSelection(Reader.CARD_WARM_RESET);
 
         // Initialize list button
-        mListButton = (Button) findViewById(R.id.main_button_list);
+        mListButton = findViewById(R.id.main_button_list);
         mListButton.setOnClickListener(new OnClickListener() {
 
             @Override
@@ -681,7 +837,7 @@ public class MainActivity extends Activity {
         });
 
         // Initialize open button
-        mOpenButton = (Button) findViewById(R.id.main_button_open);
+        mOpenButton = findViewById(R.id.main_button_open);
         mOpenButton.setOnClickListener(new OnClickListener() {
 
             @Override
@@ -721,7 +877,7 @@ public class MainActivity extends Activity {
         });
 
         // Initialize close button
-        mCloseButton = (Button) findViewById(R.id.main_button_close);
+        mCloseButton = findViewById(R.id.main_button_close);
         mCloseButton.setOnClickListener(new OnClickListener() {
 
             @Override
@@ -735,7 +891,6 @@ public class MainActivity extends Activity {
                 mPowerButton.setEnabled(false);
                 mGetAtrButton.setEnabled(false);
                 mT0CheckBox.setEnabled(false);
-                mT1CheckBox.setEnabled(false);
                 mSetProtocolButton.setEnabled(false);
                 mGetProtocolButton.setEnabled(false);
                 mTransmitButton.setEnabled(false);
@@ -756,7 +911,7 @@ public class MainActivity extends Activity {
         });
 
         // Initialize get state button
-        mGetStateButton = (Button) findViewById(R.id.main_button_get_state);
+        mGetStateButton = findViewById(R.id.main_button_get_state);
         mGetStateButton.setOnClickListener(new OnClickListener() {
 
             @Override
@@ -790,7 +945,7 @@ public class MainActivity extends Activity {
         });
 
         // Initialize power button
-        mPowerButton = (Button) findViewById(R.id.main_button_power);
+        mPowerButton = findViewById(R.id.main_button_power);
         mPowerButton.setOnClickListener(new OnClickListener() {
 
             @Override
@@ -824,7 +979,7 @@ public class MainActivity extends Activity {
             }
         });
 
-        mGetAtrButton = (Button) findViewById(R.id.main_button_get_atr);
+        mGetAtrButton = findViewById(R.id.main_button_get_atr);
         mGetAtrButton.setOnClickListener(new OnClickListener() {
 
             @Override
@@ -862,15 +1017,11 @@ public class MainActivity extends Activity {
         });
 
         // Initialize T=0 check box
-        mT0CheckBox = (CheckBox) findViewById(R.id.main_check_box_t0);
+        mT0CheckBox = findViewById(R.id.main_check_box_t0);
         mT0CheckBox.setChecked(true);
 
-        // Initialize T=1 check box
-        mT1CheckBox = (CheckBox) findViewById(R.id.main_check_box_t1);
-        mT1CheckBox.setChecked(true);
-
         // Initialize set protocol button
-        mSetProtocolButton = (Button) findViewById(R.id.main_button_set_protocol);
+        mSetProtocolButton = findViewById(R.id.main_button_set_protocol);
         mSetProtocolButton.setOnClickListener(new OnClickListener() {
 
             @Override
@@ -891,16 +1042,6 @@ public class MainActivity extends Activity {
                         preferredProtocolsString = "T=0";
                     }
 
-                    if (mT1CheckBox.isChecked()) {
-
-                        preferredProtocols |= Reader.PROTOCOL_T1;
-                        if (preferredProtocolsString != "") {
-                            preferredProtocolsString += "/";
-                        }
-
-                        preferredProtocolsString += "T=1";
-                    }
-
                     if (preferredProtocolsString == "") {
                         preferredProtocolsString = "None";
                     }
@@ -919,7 +1060,7 @@ public class MainActivity extends Activity {
         });
 
         // Initialize get active protocol button
-        mGetProtocolButton = (Button) findViewById(R.id.main_button_get_protocol);
+        mGetProtocolButton = findViewById(R.id.main_button_get_protocol);
         mGetProtocolButton.setOnClickListener(new OnClickListener() {
 
             @Override
@@ -966,10 +1107,10 @@ public class MainActivity extends Activity {
         });
 
         // Initialize command edit text
-        mCommandEditText = (EditText) findViewById(R.id.main_edit_text_command);
+        mCommandEditText = findViewById(R.id.main_edit_text_command);
 
         // Initialize transmit button
-        mTransmitButton = (Button) findViewById(R.id.main_button_transmit);
+        mTransmitButton = findViewById(R.id.main_button_transmit);
         mTransmitButton.setOnClickListener(new OnClickListener() {
 
             @Override
@@ -980,27 +1121,61 @@ public class MainActivity extends Activity {
 
                 // If slot is selected
                 if (slotNum != Spinner.INVALID_POSITION) {
-
-                    // Set parameters
                     TransmitParams params = new TransmitParams();
                     params.slotNum = slotNum;
                     params.controlCode = -1;
-                    params.commandString = mCommandEditText.getText()
-                            .toString();
-
-                    // Transmit APDU
-                    logMsg("Slot " + slotNum + ": Transmitting APDU...");
+                    params.commandString = "00A4040008A000000054480001";
                     new TransmitTask().execute(params);
+                    params = new TransmitParams();
+                    params.slotNum = slotNum;
+                    params.controlCode = -1;
+                    params.commandString = "80B0000402000D";
+                    new TransmitTask().execute(params);
+                    params = new TransmitParams();
+                    params.slotNum = slotNum;
+                    params.controlCode = -1;
+                    params.commandString = "00C000000D";
+                    new ThaiTransmitTask().execute(params);
+                    params = new TransmitParams();
+                    params.slotNum = slotNum;
+                    params.controlCode = -1;
+                    params.commandString = "80B000110200D1";
+                    new TransmitTask().execute(params);
+                    params = new TransmitParams();
+                    params.slotNum = slotNum;
+                    params.controlCode = -1;
+                    params.commandString = "00C00000D1";
+                    new ThaiTransmitTask().execute(params);
+                    params = new TransmitParams();
+                    params.slotNum = slotNum;
+                    params.controlCode = -1;
+                    params.commandString = "80B01579020064";
+                    new TransmitTask().execute(params);
+                    params = new TransmitParams();
+                    params.slotNum = slotNum;
+                    params.controlCode = -1;
+                    params.commandString = "00C0000064";
+                    new ThaiTransmitTask().execute(params);
+                    params = new TransmitParams();
+                    params.slotNum = slotNum;
+                    params.controlCode = -1;
+                    params.commandString = "80B00167020012";
+                    new TransmitTask().execute(params);
+                    params = new TransmitParams();
+                    params.slotNum = slotNum;
+                    params.controlCode = -1;
+                    params.commandString = "00C0000012";
+                    new ThaiTransmitTask().execute(params);
                 }
             }
         });
 
         // Initialize control edit text
-        mControlEditText = (EditText) findViewById(R.id.main_edit_text_control);
+        mControlEditText = findViewById(R.id.main_edit_text_control);
         mControlEditText.setText(Integer.toString(Reader.IOCTL_CCID_ESCAPE));
 
         // Initialize control button
-        mControlButton = (Button) findViewById(R.id.main_button_control);
+        mControlButton = findViewById(R.id.main_button_control);
         mControlButton.setOnClickListener(new OnClickListener() {
 
             @Override
@@ -1041,7 +1216,7 @@ public class MainActivity extends Activity {
         });
 
         // Initialize get features button
-        mGetFeaturesButton = (Button) findViewById(R.id.main_button_get_features);
+        mGetFeaturesButton = findViewById(R.id.main_button_get_features);
         mGetFeaturesButton.setOnClickListener(new OnClickListener() {
 
             @Override
@@ -1090,7 +1265,7 @@ public class MainActivity extends Activity {
         mPinVerify.setData(pinVerifyData, pinVerifyData.length);
 
         // Initialize verify pin button
-        mVerifyPinButton = (Button) findViewById(R.id.main_button_verify_pin);
+        mVerifyPinButton = findViewById(R.id.main_button_verify_pin);
         mVerifyPinButton.setOnClickListener(new OnClickListener() {
 
             @Override
@@ -1126,7 +1301,7 @@ public class MainActivity extends Activity {
         mPinModify.setData(pinModifyData, pinModifyData.length);
 
         // Initialize modify pin button
-        mModifyPinButton = (Button) findViewById(R.id.main_button_modify_pin);
+        mModifyPinButton = findViewById(R.id.main_button_modify_pin);
         mModifyPinButton.setOnClickListener(new OnClickListener() {
 
             @Override
@@ -1143,7 +1318,7 @@ public class MainActivity extends Activity {
         mReadKeyOption.setEchoLcdMode(0x01);
 
         // Initialize read key button
-        mReadKeyButton = (Button) findViewById(R.id.main_button_read_key);
+        mReadKeyButton = findViewById(R.id.main_button_read_key);
         mReadKeyButton.setOnClickListener(new OnClickListener() {
 
             @Override
@@ -1156,7 +1331,7 @@ public class MainActivity extends Activity {
         mLcdMessage = "Hello!";
 
         // Initialize display LCD message button
-        mDisplayLcdMessageButton = (Button) findViewById(R.id.main_button_display_lcd_message);
+        mDisplayLcdMessageButton = findViewById(R.id.main_button_display_lcd_message);
         mDisplayLcdMessageButton.setOnClickListener(new OnClickListener() {
 
             @Override
@@ -1173,7 +1348,6 @@ public class MainActivity extends Activity {
         mPowerButton.setEnabled(false);
         mGetAtrButton.setEnabled(false);
         mT0CheckBox.setEnabled(false);
-        mT1CheckBox.setEnabled(false);
         mSetProtocolButton.setEnabled(false);
         mGetProtocolButton.setEnabled(false);
         mTransmitButton.setEnabled(false);
@@ -1229,42 +1403,42 @@ public class MainActivity extends Activity {
                             EditText editText;
                             byte[] buffer;
 
-                            editText = (EditText) layout
+                            editText = layout
                                     .findViewById(R.id.verify_pin_dialog_edit_text_timeout);
                             buffer = toByteArray(editText.getText().toString());
                             if (buffer != null && buffer.length > 0) {
                                 mPinVerify.setTimeOut(buffer[0] & 0xFF);
                             }
 
-                            editText = (EditText) layout
+                            editText = layout
                                     .findViewById(R.id.verify_pin_dialog_edit_text_timeout2);
                             buffer = toByteArray(editText.getText().toString());
                             if (buffer != null && buffer.length > 0) {
                                 mPinVerify.setTimeOut2(buffer[0] & 0xFF);
                             }
 
-                            editText = (EditText) layout
+                            editText = layout
                                     .findViewById(R.id.verify_pin_dialog_edit_text_format_string);
                             buffer = toByteArray(editText.getText().toString());
                             if (buffer != null && buffer.length > 0) {
                                 mPinVerify.setFormatString(buffer[0] & 0xFF);
                             }
 
-                            editText = (EditText) layout
+                            editText = layout
                                     .findViewById(R.id.verify_pin_dialog_edit_text_pin_block_string);
                             buffer = toByteArray(editText.getText().toString());
                             if (buffer != null && buffer.length > 0) {
                                 mPinVerify.setPinBlockString(buffer[0] & 0xFF);
                             }
 
-                            editText = (EditText) layout
+                            editText = layout
                                     .findViewById(R.id.verify_pin_dialog_edit_text_pin_length_format);
                             buffer = toByteArray(editText.getText().toString());
                             if (buffer != null && buffer.length > 0) {
                                 mPinVerify.setPinLengthFormat(buffer[0] & 0xFF);
                             }
 
-                            editText = (EditText) layout
+                            editText = layout
                                     .findViewById(R.id.verify_pin_dialog_edit_text_pin_max_extra_digit);
                             buffer = toByteArray(editText.getText().toString());
                             if (buffer != null && buffer.length > 1) {
@@ -1273,7 +1447,7 @@ public class MainActivity extends Activity {
                                                 | (buffer[1] & 0xFF));
                             }
 
-                            editText = (EditText) layout
+                            editText = layout
                                     .findViewById(R.id.verify_pin_dialog_edit_text_entry_validation_condition);
                             buffer = toByteArray(editText.getText().toString());
                             if (buffer != null && buffer.length > 0) {
@@ -1281,14 +1455,14 @@ public class MainActivity extends Activity {
                                         .setEntryValidationCondition(buffer[0] & 0xFF);
                             }
 
-                            editText = (EditText) layout
+                            editText = layout
                                     .findViewById(R.id.verify_pin_dialog_edit_text_number_message);
                             buffer = toByteArray(editText.getText().toString());
                             if (buffer != null && buffer.length > 0) {
                                 mPinVerify.setNumberMessage(buffer[0] & 0xFF);
                             }
 
-                            editText = (EditText) layout
+                            editText = layout
                                     .findViewById(R.id.verify_pin_dialog_edit_text_lang_id);
                             buffer = toByteArray(editText.getText().toString());
                             if (buffer != null && buffer.length > 1) {
@@ -1296,14 +1470,14 @@ public class MainActivity extends Activity {
                                         | (buffer[1] & 0xFF));
                             }
 
-                            editText = (EditText) layout
+                            editText = layout
                                     .findViewById(R.id.verify_pin_dialog_edit_text_msg_index);
                             buffer = toByteArray(editText.getText().toString());
                             if (buffer != null && buffer.length > 0) {
                                 mPinVerify.setMsgIndex(buffer[0] & 0xFF);
                             }
 
-                            editText = (EditText) layout
+                            editText = layout
                                     .findViewById(R.id.verify_pin_dialog_edit_text_teo_prologue);
                             buffer = toByteArray(editText.getText().toString());
                             if (buffer != null && buffer.length > 2) {
@@ -1312,7 +1486,7 @@ public class MainActivity extends Activity {
                                 mPinVerify.setTeoPrologue(2, buffer[2] & 0xFF);
                             }
 
-                            editText = (EditText) layout
+                            editText = layout
                                     .findViewById(R.id.verify_pin_dialog_edit_text_data);
                             buffer = toByteArray(editText.getText().toString());
                             if (buffer != null && buffer.length > 0) {
@@ -1377,42 +1551,42 @@ public class MainActivity extends Activity {
                             EditText editText;
                             byte[] buffer;
 
-                            editText = (EditText) layout
+                            editText = layout
                                     .findViewById(R.id.modify_pin_dialog_edit_text_timeout);
                             buffer = toByteArray(editText.getText().toString());
                             if (buffer != null && buffer.length > 0) {
                                 mPinModify.setTimeOut(buffer[0] & 0xFF);
                             }
 
-                            editText = (EditText) layout
+                            editText = layout
                                     .findViewById(R.id.modify_pin_dialog_edit_text_timeout2);
                             buffer = toByteArray(editText.getText().toString());
                             if (buffer != null && buffer.length > 0) {
                                 mPinModify.setTimeOut2(buffer[0] & 0xFF);
                             }
 
-                            editText = (EditText) layout
+                            editText = layout
                                     .findViewById(R.id.modify_pin_dialog_edit_text_format_string);
                             buffer = toByteArray(editText.getText().toString());
                             if (buffer != null && buffer.length > 0) {
                                 mPinModify.setFormatString(buffer[0] & 0xFF);
                             }
 
-                            editText = (EditText) layout
+                            editText = layout
                                     .findViewById(R.id.modify_pin_dialog_edit_text_pin_block_string);
                             buffer = toByteArray(editText.getText().toString());
                             if (buffer != null && buffer.length > 0) {
                                 mPinModify.setPinBlockString(buffer[0] & 0xFF);
                             }
 
-                            editText = (EditText) layout
+                            editText = layout
                                     .findViewById(R.id.modify_pin_dialog_edit_text_pin_length_format);
                             buffer = toByteArray(editText.getText().toString());
                             if (buffer != null && buffer.length > 0) {
                                 mPinModify.setPinLengthFormat(buffer[0] & 0xFF);
                             }
 
-                            editText = (EditText) layout
+                            editText = layout
                                     .findViewById(R.id.modify_pin_dialog_edit_text_insertion_offset_old);
                             buffer = toByteArray(editText.getText().toString());
                             if (buffer != null && buffer.length > 0) {
@@ -1420,7 +1594,7 @@ public class MainActivity extends Activity {
                                         .setInsertionOffsetOld(buffer[0] & 0xFF);
                             }
 
-                            editText = (EditText) layout
+                            editText = layout
                                     .findViewById(R.id.modify_pin_dialog_edit_text_insertion_offset_new);
                             buffer = toByteArray(editText.getText().toString());
                             if (buffer != null && buffer.length > 0) {
@@ -1428,7 +1602,7 @@ public class MainActivity extends Activity {
                                         .setInsertionOffsetNew(buffer[0] & 0xFF);
                             }
 
-                            editText = (EditText) layout
+                            editText = layout
                                     .findViewById(R.id.modify_pin_dialog_edit_text_pin_max_extra_digit);
                             buffer = toByteArray(editText.getText().toString());
                             if (buffer != null && buffer.length > 1) {
@@ -1437,14 +1611,14 @@ public class MainActivity extends Activity {
                                                 | (buffer[1] & 0xFF));
                             }
 
-                            editText = (EditText) layout
+                            editText = layout
                                     .findViewById(R.id.modify_pin_dialog_edit_text_confirm_pin);
                             buffer = toByteArray(editText.getText().toString());
                             if (buffer != null && buffer.length > 0) {
                                 mPinModify.setConfirmPin(buffer[0] & 0xFF);
                             }
 
-                            editText = (EditText) layout
+                            editText = layout
                                     .findViewById(R.id.modify_pin_dialog_edit_text_entry_validation_condition);
                             buffer = toByteArray(editText.getText().toString());
                             if (buffer != null && buffer.length > 0) {
@@ -1452,14 +1626,14 @@ public class MainActivity extends Activity {
                                         .setEntryValidationCondition(buffer[0] & 0xFF);
                             }
 
-                            editText = (EditText) layout
+                            editText = layout
                                     .findViewById(R.id.modify_pin_dialog_edit_text_number_message);
                             buffer = toByteArray(editText.getText().toString());
                             if (buffer != null && buffer.length > 0) {
                                 mPinModify.setNumberMessage(buffer[0] & 0xFF);
                             }
 
-                            editText = (EditText) layout
+                            editText = layout
                                     .findViewById(R.id.modify_pin_dialog_edit_text_lang_id);
                             buffer = toByteArray(editText.getText().toString());
                             if (buffer != null && buffer.length > 1) {
@@ -1467,28 +1641,28 @@ public class MainActivity extends Activity {
                                         | (buffer[1] & 0xFF));
                             }
 
-                            editText = (EditText) layout
+                            editText = layout
                                     .findViewById(R.id.modify_pin_dialog_edit_text_msg_index1);
                             buffer = toByteArray(editText.getText().toString());
                             if (buffer != null && buffer.length > 0) {
                                 mPinModify.setMsgIndex1(buffer[0] & 0xFF);
                             }
 
-                            editText = (EditText) layout
+                            editText = layout
                                     .findViewById(R.id.modify_pin_dialog_edit_text_msg_index2);
                             buffer = toByteArray(editText.getText().toString());
                             if (buffer != null && buffer.length > 0) {
                                 mPinModify.setMsgIndex2(buffer[0] & 0xFF);
                             }
 
-                            editText = (EditText) layout
+                            editText = layout
                                     .findViewById(R.id.modify_pin_dialog_edit_text_msg_index3);
                             buffer = toByteArray(editText.getText().toString());
                             if (buffer != null && buffer.length > 0) {
                                 mPinModify.setMsgIndex3(buffer[0] & 0xFF);
                             }
 
-                            editText = (EditText) layout
+                            editText = layout
                                     .findViewById(R.id.modify_pin_dialog_edit_text_teo_prologue);
                             buffer = toByteArray(editText.getText().toString());
                             if (buffer != null && buffer.length > 2) {
@@ -1497,7 +1671,7 @@ public class MainActivity extends Activity {
                                 mPinModify.setTeoPrologue(2, buffer[2] & 0xFF);
                             }
 
-                            editText = (EditText) layout
+                            editText = layout
                                     .findViewById(R.id.modify_pin_dialog_edit_text_data);
                             buffer = toByteArray(editText.getText().toString());
                             if (buffer != null && buffer.length > 0) {
@@ -1560,14 +1734,14 @@ public class MainActivity extends Activity {
                             EditText editText;
                             byte[] buffer;
 
-                            editText = (EditText) layout
+                            editText = layout
                                     .findViewById(R.id.read_key_dialog_edit_text_timeout);
                             buffer = toByteArray(editText.getText().toString());
                             if (buffer != null && buffer.length > 0) {
                                 mReadKeyOption.setTimeOut(buffer[0] & 0xFF);
                             }
 
-                            editText = (EditText) layout
+                            editText = layout
                                     .findViewById(R.id.read_key_dialog_edit_text_pin_max_extra_digit);
                             buffer = toByteArray(editText.getText().toString());
                             if (buffer != null && buffer.length > 1) {
@@ -1576,7 +1750,7 @@ public class MainActivity extends Activity {
                                                 | (buffer[1] & 0xFF));
                             }
 
-                            editText = (EditText) layout
+                            editText = layout
                                     .findViewById(R.id.read_key_dialog_edit_text_key_return_condition);
                             buffer = toByteArray(editText.getText().toString());
                             if (buffer != null && buffer.length > 0) {
@@ -1584,7 +1758,7 @@ public class MainActivity extends Activity {
                                         .setKeyReturnCondition(buffer[0] & 0xFF);
                             }
 
-                            editText = (EditText) layout
+                            editText = layout
                                     .findViewById(R.id.read_key_dialog_edit_text_echo_lcd_start_position);
                             buffer = toByteArray(editText.getText().toString());
                             if (buffer != null && buffer.length > 0) {
@@ -1592,7 +1766,7 @@ public class MainActivity extends Activity {
                                         .setEchoLcdStartPosition(buffer[0] & 0xFF);
                             }
 
-                            editText = (EditText) layout
+                            editText = layout
                                     .findViewById(R.id.read_key_dialog_edit_text_echo_lcd_mode);
                             buffer = toByteArray(editText.getText().toString());
                             if (buffer != null && buffer.length > 0) {
@@ -1653,7 +1827,7 @@ public class MainActivity extends Activity {
                         @Override
                         public void onClick(DialogInterface dialog, int which) {
 
-                            EditText editText = (EditText) layout
+                            EditText editText = layout
                                     .findViewById(R.id.display_lcd_message_dialog_edit_text_message);
                             mLcdMessage = editText.getText().toString();
 
@@ -1668,12 +1842,8 @@ public class MainActivity extends Activity {
                                 TransmitParams params = new TransmitParams();
                                 params.slotNum = slotNum;
                                 params.controlCode = Reader.IOCTL_ACR83_DISPLAY_LCD_MESSAGE;
-                                try {
-                                    params.commandString = toHexString(mLcdMessage
-                                            .getBytes("US-ASCII"));
-                                } catch (UnsupportedEncodingException e) {
-                                    params.commandString = "";
-                                }
+                                params.commandString = toHexString(mLcdMessage
+                                        .getBytes(StandardCharsets.US_ASCII));
 
                                 // Transmit control command
                                 logMsg("Slot "
@@ -1717,156 +1887,156 @@ public class MainActivity extends Activity {
         switch (id) {
 
         case DIALOG_VERIFY_PIN_ID:
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.verify_pin_dialog_edit_text_timeout);
             editText.setText(toHexString(mPinVerify.getTimeOut()));
 
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.verify_pin_dialog_edit_text_timeout2);
             editText.setText(toHexString(mPinVerify.getTimeOut2()));
 
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.verify_pin_dialog_edit_text_format_string);
             editText.setText(toHexString(mPinVerify.getFormatString()));
 
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.verify_pin_dialog_edit_text_pin_block_string);
             editText.setText(toHexString(mPinVerify.getPinBlockString()));
 
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.verify_pin_dialog_edit_text_pin_length_format);
             editText.setText(toHexString(mPinVerify.getPinLengthFormat()));
 
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.verify_pin_dialog_edit_text_pin_max_extra_digit);
             editText.setText(toHexString(mPinVerify.getPinMaxExtraDigit()));
 
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.verify_pin_dialog_edit_text_entry_validation_condition);
             editText.setText(toHexString(mPinVerify
                     .getEntryValidationCondition()));
 
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.verify_pin_dialog_edit_text_number_message);
             editText.setText(toHexString(mPinVerify.getNumberMessage()));
 
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.verify_pin_dialog_edit_text_lang_id);
             editText.setText(toHexString(mPinVerify.getLangId()));
 
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.verify_pin_dialog_edit_text_msg_index);
             editText.setText(toHexString(mPinVerify.getMsgIndex()));
 
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.verify_pin_dialog_edit_text_teo_prologue);
             editText.setText(toHexString(mPinVerify.getTeoPrologue(0)) + " "
                     + toHexString(mPinVerify.getTeoPrologue(1)) + " "
                     + toHexString(mPinVerify.getTeoPrologue(2)));
 
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.verify_pin_dialog_edit_text_data);
             editText.setText(toHexString(mPinVerify.getData()));
             break;
 
         case DIALOG_MODIFY_PIN_ID:
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.modify_pin_dialog_edit_text_timeout);
             editText.setText(toHexString(mPinModify.getTimeOut()));
 
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.modify_pin_dialog_edit_text_timeout2);
             editText.setText(toHexString(mPinModify.getTimeOut2()));
 
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.modify_pin_dialog_edit_text_format_string);
             editText.setText(toHexString(mPinModify.getFormatString()));
 
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.modify_pin_dialog_edit_text_pin_block_string);
             editText.setText(toHexString(mPinModify.getPinBlockString()));
 
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.modify_pin_dialog_edit_text_pin_length_format);
             editText.setText(toHexString(mPinModify.getPinLengthFormat()));
 
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.modify_pin_dialog_edit_text_insertion_offset_new);
             editText.setText(toHexString(mPinModify.getInsertionOffsetNew()));
 
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.modify_pin_dialog_edit_text_insertion_offset_old);
             editText.setText(toHexString(mPinModify.getInsertionOffsetOld()));
 
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.modify_pin_dialog_edit_text_pin_max_extra_digit);
             editText.setText(toHexString(mPinModify.getPinMaxExtraDigit()));
 
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.modify_pin_dialog_edit_text_confirm_pin);
             editText.setText(toHexString(mPinModify.getConfirmPin()));
 
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.modify_pin_dialog_edit_text_entry_validation_condition);
             editText.setText(toHexString(mPinModify
                     .getEntryValidationCondition()));
 
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.modify_pin_dialog_edit_text_number_message);
             editText.setText(toHexString(mPinModify.getNumberMessage()));
 
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.modify_pin_dialog_edit_text_lang_id);
             editText.setText(toHexString(mPinModify.getLangId()));
 
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.modify_pin_dialog_edit_text_msg_index1);
             editText.setText(toHexString(mPinModify.getMsgIndex1()));
 
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.modify_pin_dialog_edit_text_msg_index2);
             editText.setText(toHexString(mPinModify.getMsgIndex2()));
 
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.modify_pin_dialog_edit_text_msg_index3);
             editText.setText(toHexString(mPinModify.getMsgIndex3()));
 
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.modify_pin_dialog_edit_text_teo_prologue);
             editText.setText(toHexString(mPinModify.getTeoPrologue(0)) + " "
                     + toHexString(mPinModify.getTeoPrologue(1)) + " "
                     + toHexString(mPinModify.getTeoPrologue(2)));
 
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.modify_pin_dialog_edit_text_data);
             editText.setText(toHexString(mPinModify.getData()));
             break;
 
         case DIALOG_READ_KEY_ID:
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.read_key_dialog_edit_text_timeout);
             editText.setText(toHexString(mReadKeyOption.getTimeOut()));
 
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.read_key_dialog_edit_text_pin_max_extra_digit);
             editText.setText(toHexString(mReadKeyOption.getPinMaxExtraDigit()));
 
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.read_key_dialog_edit_text_key_return_condition);
             editText.setText(toHexString(mReadKeyOption.getKeyReturnCondition()));
 
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.read_key_dialog_edit_text_echo_lcd_start_position);
             editText.setText(toHexString(mReadKeyOption
                     .getEchoLcdStartPosition()));
 
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.read_key_dialog_edit_text_echo_lcd_mode);
             editText.setText(toHexString(mReadKeyOption.getEchoLcdMode()));
             break;
 
         case DIALOG_DISPLAY_LCD_MESSAGE_ID:
-            editText = (EditText) dialog
+            editText = dialog
                     .findViewById(R.id.display_lcd_message_dialog_edit_text_message);
             editText.setText(mLcdMessage);
             break;
@@ -1907,30 +2077,10 @@ public class MainActivity extends Activity {
      *            the buffer length.
      */
     private void logBuffer(byte[] buffer, int bufferLength) {
-
-        String bufferString = "";
-
-        for (int i = 0; i < bufferLength; i++) {
-
-            String hexChar = Integer.toHexString(buffer[i] & 0xFF);
-            if (hexChar.length() == 1) {
-                hexChar = "0" + hexChar;
-            }
-
-            if (i % 16 == 0) {
-
-                if (bufferString != "") {
-
-                    logMsg(bufferString);
-                    bufferString = "";
-                }
-            }
-
-            bufferString += hexChar.toUpperCase() + " ";
-        }
-
-        if (bufferString != "") {
-            logMsg(bufferString);
+        try {
+            logMsg(new String(buffer, "TIS620").trim().replace("#","").replace(" ",""));
+        } catch (UnsupportedEncodingException e) {
+            e.printStackTrace();
         }
     }
 

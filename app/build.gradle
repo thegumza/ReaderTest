@@ -6,6 +6,7 @@ android {
 
     defaultConfig {
         applicationId "com.acs.readertest"
+        minSdkVersion 21
         targetSdkVersion 29
     }
 

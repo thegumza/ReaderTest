@@ -1,13 +1,12 @@
 apply plugin: 'com.android.application'
 
 android {
-    compileSdkVersion 27
-    buildToolsVersion "27.0.3"
+    compileSdkVersion 29
+    buildToolsVersion "29.0.3"
 
     defaultConfig {
         applicationId "com.acs.readertest"
-        minSdkVersion 19
-        targetSdkVersion 27
+        targetSdkVersion 29
     }
 
     buildTypes {
@@ -19,5 +18,5 @@ android {
 }
 
 dependencies {
-    implementation files('libs/acssmc-1.1.4.jar')
+    implementation files('libs/acssmc-1.1.5.jar')
 }

@@ -430,6 +430,83 @@ public class MainActivity extends Activity implements OnStateChangeListener {
                 logBuffer(progress[0].response, progress[0].responseLength);
         }
     }
+    private class PicTransmitTask extends
+            AsyncTask<TransmitParams, TransmitProgress, Void> {
+
+        @Override
+        protected Void doInBackground(TransmitParams... params) {
+
+            TransmitProgress progress = null;
+
+            byte[] command = null;
+            byte[] response = null;
+            int responseLength = 0;
+            int foundIndex = 0;
+            int startIndex = 0;
+
+            do {
+
+                // Find carriage return
+                foundIndex = params[0].commandString.indexOf('\n', startIndex);
+                if (foundIndex >= 0) {
+                    command = toByteArray(params[0].commandString.substring(
+                            startIndex, foundIndex));
+                } else {
+                    command = toByteArray(params[0].commandString
+                            .substring(startIndex));
+                }
+
+                // Set next start index
+                startIndex = foundIndex + 1;
+
+                response = new byte[300];
+                progress = new TransmitProgress();
+                progress.controlCode = params[0].controlCode;
+                try {
+
+                    if (params[0].controlCode < 0) {
+
+                        // Transmit APDU
+                        responseLength = mReader.transmit(params[0].slotNum,
+                                command, command.length, response,
+                                response.length);
+
+                    } else {
+
+                        // Transmit control command
+                        responseLength = mReader.control(params[0].slotNum,
+                                params[0].controlCode, command, command.length,
+                                response, response.length);
+                    }
+
+                    progress.command = command;
+                    progress.commandLength = command.length;
+                    progress.response = response;
+                    progress.responseLength = responseLength;
+                    progress.e = null;
+
+                } catch (Exception e) {
+
+                    progress.command = null;
+                    progress.commandLength = 0;
+                    progress.response = null;
+                    progress.responseLength = 0;
+                    progress.e = e;
+                }
+
+                publishProgress(progress);
+
+            } while (foundIndex >= 0);
+
+            return null;
+        }
+
+        @Override
+        protected void onProgressUpdate(TransmitProgress... progress) {
+            if (progress.length > 0)
+                logBuffer(progress[0].response, progress[0].responseLength);
+        }
+    }
 
     /**
      * Called when the activity is first created.
@@ -528,7 +605,7 @@ public class MainActivity extends Activity implements OnStateChangeListener {
                             params.slotNum = slotNum;
                             params.controlCode = -1;
                             params.commandString = "00C0000012";
-                            new ThaiTransmitTask().execute(params);
+                            new PicTransmitTask().execute(params);
                         }
                     } else {
                         mManager.requestPermission(device,
